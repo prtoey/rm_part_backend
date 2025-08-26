@@ -15,22 +15,76 @@ module.exports = (app, connection) => {
     });
   }
 
+  // check Admin
+  router.post("/checkAdmin", async (req, res) => {
+    const { emp_id, password } = req.body;
+
+    if (!emp_id || !password) {
+      return res
+        .status(400)
+        .json({ check: false, message: "Missing emp_id or password" });
+    }
+
+    try {
+      const results = await queryDatabase(
+        "SELECT emp_id, password FROM employee WHERE emp_id = ? AND admin = 1 AND status = 1",
+        [emp_id]
+      );
+
+      if (results.length === 0) {
+        return res
+          .status(401)
+          .json({ check: false, message: "Employee not found or Not Admin" });
+      }
+
+      const employee = results[0];
+
+      if (employee.password === password) {
+        return res.json({ check: true });
+      } else {
+        return res
+          .status(401)
+          .json({ check: false, message: "Invalid password" });
+      }
+    } catch (err) {
+      return res.status(500).json({ check: false, message: "Database error" });
+    }
+  });
+
   // Show data
   router.get("/get/:select", async (req, res) => {
     const { select } = req.params;
 
     let query;
     switch (select) {
+      case "employee":
+        query = "SELECT * FROM employee WHERE status = 1";
+        break;
       case "section":
         query = "SELECT * FROM section WHERE status = 1";
         break;
       case "storage_before":
-        query =
-          "SELECT index_storage, code, fk_section FROM storage_location WHERE type = 'before' AND status = 1";
+        query = `SELECT
+                    storage_location.index_storage,
+                    storage_location.code,
+                    storage_location.fk_section,
+                    section.name AS 'section_name'
+                FROM storage_location
+                INNER JOIN section ON section.index_section = storage_location.fk_section 
+                WHERE storage_location.type = 'before' 
+                AND storage_location.status = 1`;
         break;
       case "storage_after":
-        query =
-          "SELECT index_storage, code, fk_section FROM storage_location WHERE type = 'after' AND status = 1";
+        query = `SELECT
+                    storage_location.index_storage,
+                    storage_location.code,
+                    storage_location.fk_section,
+                    section.name AS 'section_name'
+                FROM storage_location
+                LEFT JOIN section 
+                ON section.index_section = storage_location.fk_section 
+                WHERE storage_location.type = 'after' 
+                AND storage_location.status = 1`;
         break;
       case "location":
         query = "SELECT * FROM location WHERE status = 1";
