@@ -23,13 +23,13 @@ const connection = mysql.createPool({
 
 app.use(cors());
 
-// const inputRoute = require("./api/inputInvoice")(app, connection, uploadOpts);
-const dataRoute = require("./api/data")(app, connection, uploadOpts);
+const inputRoute = require("./api/inputInvoice")(app, connection);
+const dataRoute = require("./api/data")(app, connection);
 // const manageRoute = require("./api/manageInvoice")(app, connection, uploadOpts);
 // const exportRoute = require("./api/exportInvoice")(app, connection, uploadOpts);
 
 // Use routes
-// app.use("/inputInvoice", inputRoute);
+app.use("/inputInvoice", inputRoute);
 app.use("/data", dataRoute);
 // app.use("/manageInvoice", manageRoute);
 // app.use("/exportInvoice", exportRoute);
