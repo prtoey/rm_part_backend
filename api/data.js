@@ -108,11 +108,11 @@ module.exports = (app, connection) => {
     let query, values;
     switch (select) {
       case "storage_before":
-        query = `SELECT code, fk_section FROM storage_location WHERE type = 'before' AND fk_section = ? AND status = 1`;
+        query = `SELECT index_storage, code, fk_section FROM storage_location WHERE type = 'before' AND fk_section = ? AND status = 1`;
         break;
       case "storage_after":
         query = `
-          SELECT code, fk_section 
+          SELECT index_storage, code, fk_section 
           FROM storage_location 
           WHERE type = 'after' 
             AND (fk_section = ? OR fk_section IS NULL)
