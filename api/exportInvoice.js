@@ -13,7 +13,8 @@ module.exports = (app, connection) => {
     try {
       const sql = `
         SELECT
-          COALESCE(DATE_FORMAT(process1.incoming_date, '%d-%b-%Y'), '-') AS Incoming_date,
+          COALESCE(DATE_FORMAT(process1.incoming_date, '%Y-%m-%d'), '-') AS Incoming_date,
+          COALESCE(DATE_FORMAT(process1.incoming_date, '%d-%b-%Y'), '-') AS Incoming_date_display,
           COALESCE(l8.name, '-') AS location,
           invoice.code AS invoice,
           section.name AS section,
@@ -152,7 +153,7 @@ module.exports = (app, connection) => {
 
         // Config mapping (A → BG)
         const columnConfig = [
-          { key: "Incoming_date", col: "A" },
+          { key: "Incoming_date_display", col: "A" },
           { key: "location", col: "B" },
           { key: "invoice", col: "C" },
           { key: "section", col: "D" },
@@ -254,9 +255,16 @@ module.exports = (app, connection) => {
           const judgement = rowData.process6_judgement;
           const incomingDateStr = rowData.Incoming_date;
 
-          if (!judgement || judgement.trim() === "") {
+          if (!judgement || judgement.trim() === "" || judgement === "-") {
             if (incomingDateStr && incomingDateStr !== "-") {
-              const incomingDate = new Date(incomingDateStr);
+              // parse safely (YYYY-MM-DD → local date)
+              const [y, m, d] = incomingDateStr.split("-");
+              const incomingDate = new Date(
+                Number(y),
+                Number(m) - 1,
+                Number(d)
+              );
+
               const today = new Date();
               const diffDays = Math.floor(
                 (today - incomingDate) / (1000 * 60 * 60 * 24)
@@ -267,7 +275,7 @@ module.exports = (app, connection) => {
                   cell.fill = {
                     type: "pattern",
                     pattern: "solid",
-                    fgColor: { argb: "FF0000" }, // red
+                    fgColor: { argb: "FF5050" }, // 🔴 Red
                   };
                 });
               } else if (diffDays > 5) {
@@ -275,7 +283,7 @@ module.exports = (app, connection) => {
                   cell.fill = {
                     type: "pattern",
                     pattern: "solid",
-                    fgColor: { argb: "FFFF00" }, // yellow
+                    fgColor: { argb: "FFFF00" }, // 🟡 Yellow
                   };
                 });
               }

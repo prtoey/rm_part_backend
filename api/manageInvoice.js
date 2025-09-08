@@ -109,17 +109,21 @@ module.exports = (app, connection, uploadOpts) => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const raw = xlsx.utils.sheet_to_json(sheet, { header: 1 });
 
-      const headers = raw[0].map((h) => h?.toString().trim());
+      // Normalize header row
+      const headers = raw[0].map((h) =>
+        h ? h.toString().trim().toLowerCase() : ""
+      );
+
       const expectedHeaders = [
-        "Posting Date",
-        "Material description",
-        "Material",
-        "Batch",
-        "Qty in unit of entry",
-        "Unit of Entry",
-        "Reference",
-        "Storage location",
-        "External lot",
+        "posting date",
+        "material description",
+        "material",
+        "batch",
+        "qty",
+        "unit",
+        "reference",
+        "storage location",
+        "external lot.",
       ];
 
       const missingHeaders = expectedHeaders.filter(
@@ -142,45 +146,58 @@ module.exports = (app, connection, uploadOpts) => {
       );
       const index_p3 = result.insertId;
 
-      // Parse rows (skip header row)
-      const rows = xlsx.utils.sheet_to_json(sheet);
+      // Parse rows with normalized keys
+      const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+      const normalizedRows = rows.map((row) => {
+        const newRow = {};
+        for (const key in row) {
+          const cleanKey = key.toString().trim().toLowerCase();
+          newRow[cleanKey] = row[key];
+        }
+        return newRow;
+      });
 
-      const firstReference = rows[0]?.["Reference"]?.toString().trim();
+      const firstReference = normalizedRows[0]?.["reference"]
+        ?.toString()
+        .trim();
       if (firstReference !== invoice) {
         await fs.promises.unlink(tempPath).catch(() => {});
         return res.status(400).json({
           error: "Invoice mismatch",
-          message: `Reference in Excel file "${firstReference}" does not match your Invoice "${invoice}"`,
+          message: `Reference in Excel file : ${firstReference} does not match your Invoice : ${invoice}`,
         });
       }
 
-      for (const row of rows) {
-        const rawDate = row["Posting Date"];
-
+      for (const row of normalizedRows) {
+        const rawDate = row["posting date"];
         let post_date = null;
+
         if (rawDate) {
           if (typeof rawDate === "number") {
-            // Excel date serial number → JS Date
             const jsDate = xlsx.SSF.parse_date_code(rawDate);
-            post_date = `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(jsDate.d).padStart(2, "0")}`;
+            post_date = `${jsDate.y}-${String(jsDate.m).padStart(
+              2,
+              "0"
+            )}-${String(jsDate.d).padStart(2, "0")}`;
           } else {
             const parts = rawDate.split(/[\/\-]/);
             if (parts.length === 3) {
-              post_date = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+              post_date = `${parts[2]}-${parts[1].padStart(
+                2,
+                "0"
+              )}-${parts[0].padStart(2, "0")}`;
             }
           }
         }
 
-        const material = (row["Material"] || "").toString().trim();
-        const item_code = (row["Material description"] || "").toString().trim();
-        const external_lot = (row["External lot"] || "").toString().trim();
-        const batch = (row["Batch"] || "").toString().trim();
-        const quantity =
-          parseFloat((row["Qty in unit of entry"] || "0").toString().trim()) ||
-          0;
-        const unit = (row["Unit of Entry"] || "").toString().trim();
-        const reference = (row["Reference"] || "").toString().trim();
-        const storage = (row["Storage location"] || "").toString().trim();
+        const material = (row["material"] || "").toString().trim();
+        const item_code = (row["material description"] || "").toString().trim();
+        const external_lot = (row["external lot."] || "").toString().trim();
+        const batch = (row["batch"] || "").toString().trim();
+        const quantity = parseFloat((row["qty"] || "0").toString().trim()) || 0;
+        const unit = (row["unit"] || "").toString().trim();
+        const reference = (row["reference"] || "").toString().trim();
+        const storage = (row["storage location"] || "").toString().trim();
 
         // Insert into internal_lot
         const lotResult = await queryDatabase(
