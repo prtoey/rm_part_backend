@@ -195,48 +195,178 @@ module.exports = (app, connection) => {
   });
 
   // Show data with pagination
+// Show data with pagination
   router.get("/limit/:select", async (req, res) => {
     const { select } = req.params;
-
     // query params ?page=1&limit=20
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || "";
+     const level = req.query.level || "";
     const offset = (page - 1) * limit;
 
-    let query, countQuery;
+    let query, countQuery, params = [], countParams = [];
 
-    switch (select) {
+    switch (select ) {
       case "material":
         query = `
-              SELECT *
-              FROM material WHERE status = 1
-              LIMIT ? OFFSET ?
-            `;
-        countQuery = `SELECT COUNT(*) AS total FROM material`;
+          SELECT *
+          FROM material
+          WHERE status = 1
+          ${search ? "AND (code LIKE ? OR item_code LIKE ?)" : ""}
+          LIMIT ? OFFSET ?
+        `;
+        countQuery = `
+          SELECT COUNT(*) AS total
+          FROM material
+          WHERE status = 1
+          ${search ? "AND (code LIKE ? OR item_code LIKE ?)" : ""}
+        `;
+        if (search) {
+          params.push(`%${search}%`, `%${search}%`);
+          countParams.push(`%${search}%`, `%${search}%`);
+        }
         break;
 
-      //   case "invoice":
-      //     query = `
-      //       SELECT index_pattern, pattern, \`group\`,
-      //              group_process.process_name AS process,
-      //              process AS index_process, type, lotA, lotB, lotC, lotD
-      //       FROM pattern
-      //       INNER JOIN group_process ON pattern.process = group_process.index_group
-      //       WHERE pattern.status = '1'
-      //       ORDER BY LEFT(pattern, 1), CAST(SUBSTRING(pattern, 2) AS UNSIGNED) ASC
-      //       LIMIT ? OFFSET ?
-      //     `;
-      //     countQuery = `SELECT COUNT(*) AS total FROM pattern WHERE status = '1'`;
-      //     break;
+      case "location":
+        query = `
+          SELECT *
+          FROM location
+          WHERE status = 1
+          ${search ? "AND name LIKE ?" : ""}
+          LIMIT ? OFFSET ?
+        `;
+        countQuery = `
+          SELECT COUNT(*) AS total
+          FROM location
+          WHERE status = 1
+          ${search ? "AND name LIKE ?" : ""}
+        `;
+        if (search) {
+          params.push(`%${search}%`);
+          countParams.push(`%${search}%`);
+        }
+        break;
+
+      case "storage_before":
+         query = `
+            SELECT
+            storage_location.index_storage,
+            storage_location.code,
+            storage_location.fk_section,
+            section.name AS section_name
+            FROM storage_location
+            INNER JOIN section 
+            ON section.index_section = storage_location.fk_section
+            WHERE storage_location.type = 'before'
+            AND storage_location.status = 1
+            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+            LIMIT ? OFFSET ?
+          `;
+
+        countQuery = `
+            SELECT COUNT(*) AS total
+            FROM storage_location
+            INNER JOIN section 
+            ON section.index_section = storage_location.fk_section
+            WHERE storage_location.type = 'before'
+            AND storage_location.status = 1
+            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+          `;
+
+        if (search) {
+          params.push(`%${search}%`, `%${search}%`);
+          countParams.push(`%${search}%`, `%${search}%`);
+          }
+           break;
+
+      case "storage_after":
+          query = `
+            SELECT
+            storage_location.index_storage,
+            storage_location.code,
+            storage_location.fk_section,
+            section.name AS section_name
+            FROM storage_location
+            LEFT JOIN section 
+            ON section.index_section = storage_location.fk_section
+            WHERE storage_location.type = 'after'
+            AND storage_location.status = 1
+            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+            LIMIT ? OFFSET ?
+            `;
+
+          countQuery = `
+            SELECT COUNT(*) AS total
+            FROM storage_location
+            LEFT JOIN section 
+            ON section.index_section = storage_location.fk_section
+            WHERE storage_location.type = 'after'
+            AND storage_location.status = 1
+            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+            `;
+
+          if (search) {
+            params.push(`%${search}%`, `%${search}%`);
+            countParams.push(`%${search}%`, `%${search}%`);
+          }
+          break;
+
+      case "section":
+        query = `
+          SELECT *
+          FROM section
+          WHERE status = 1
+          ${search ? "AND name LIKE ?" : ""}
+          LIMIT ? OFFSET ?
+        `;
+        countQuery = `
+          SELECT COUNT(*) AS total
+          FROM section
+          WHERE status = 1
+          ${search ? "AND name LIKE ?" : ""}
+        `;
+        if (search) {
+          params.push(`%${search}%`);
+          countParams.push(`%${search}%`);
+        }
+        break;
+
+        case "employee":
+        query = `
+          SELECT *
+          FROM employee
+          WHERE status = 1
+          ${ search ? "AND (emp_id LIKE ? OR emp_name LIKE ?)" : ""}
+          ${ level ? "AND admin LIKE ?" : ""}
+          LIMIT ? OFFSET ?
+        `;
+        countQuery = `
+          SELECT COUNT(*) AS total
+          FROM employee
+          WHERE status = 1
+          ${search ? "AND (emp_id LIKE ? OR emp_name LIKE ?)" : ""}
+           ${ level ? "AND admin LIKE ?" : ""}
+        `;
+       if (search) {
+            params.push(`%${search}%`, `%${search}%`);
+            countParams.push(`%${search}%`, `%${search}%`);
+          }
+        if (level) {
+          params.push(level);
+          countParams.push(level);
+        } 
+        break;
+    
 
       default:
         return res.status(400).json({ error: "Invalid select parameter" });
     }
 
     try {
-      const data = await queryDatabase(query, [limit, offset]);
-      const totalResult = await queryDatabase(countQuery);
-      const total = totalResult[0].total;
+      const data = await queryDatabase(query, [...params, limit, offset]);
+      const totalResult = await queryDatabase(countQuery , countParams);
+      const total = totalResult[0].total ?? 0;
 
       res.json({
         page,
