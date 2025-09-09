@@ -15,7 +15,7 @@ module.exports = (app, connection) => {
     });
   }
 
-  // check Admin
+  // Check Admin
   router.post("/checkAdmin", async (req, res) => {
     const { emp_id, password } = req.body;
 
@@ -36,6 +36,54 @@ module.exports = (app, connection) => {
           .status(401)
           .json({ check: false, message: "Employee not found or Not Admin" });
       }
+
+      const employee = results[0];
+
+      if (employee.password === password) {
+        return res.json({ check: true });
+      } else {
+        return res
+          .status(401)
+          .json({ check: false, message: "Invalid password" });
+      }
+    } catch (err) {
+      return res.status(500).json({ check: false, message: "Database error" });
+    }
+  });
+
+  // Check Employee
+  router.post("/checkEmployeeID", async (req, res) => {
+    const { emp_id } = req.body;
+
+    try {
+      const results = await queryDatabase(
+        "SELECT emp_id FROM employee WHERE emp_id = ? AND status = 1",
+        [emp_id]
+      );
+
+      if (results.length === 0) {
+        return res
+          .status(401)
+          .json({ check: false, message: "Employee not found" });
+      }
+
+      return res.json({ check: true });
+    } catch (err) {
+      return res
+        .status(500)
+        .json({ check: false, message: "Database error", error: err.message });
+    }
+  });
+
+  // Check Password
+  router.post("/checkOldPassword", async (req, res) => {
+    const { emp_id, password } = req.body;
+
+    try {
+      const results = await queryDatabase(
+        "SELECT emp_id, password FROM employee WHERE emp_id = ? AND status = 1",
+        [emp_id]
+      );
 
       const employee = results[0];
 
@@ -304,7 +352,7 @@ module.exports = (app, connection) => {
   // Edit data
   router.post("/edit/:select/:index", async (req, res) => {
     const { select, index } = req.params;
-    const { code, name, section, type, item_code } = req.body;
+    const { code, name, section, type, item_code, password } = req.body;
 
     try {
       let query = "UPDATE ";
@@ -318,6 +366,7 @@ module.exports = (app, connection) => {
           config = "emp_id";
           if (name) (setClause.push("emp_name = ?"), values.push(name));
           if (type) (setClause.push("admin = ?"), values.push(type));
+          if (password) (setClause.push("password = ?"), values.push(password));
           break;
 
         case "section":
