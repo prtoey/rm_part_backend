@@ -195,19 +195,22 @@ module.exports = (app, connection) => {
   });
 
   // Show data with pagination
-// Show data with pagination
+  // Show data with pagination
   router.get("/limit/:select", async (req, res) => {
     const { select } = req.params;
     // query params ?page=1&limit=20
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || "";
-     const level = req.query.level || "";
+    const level = req.query.level || "";
     const offset = (page - 1) * limit;
 
-    let query, countQuery, params = [], countParams = [];
+    let query,
+      countQuery,
+      params = [],
+      countParams = [];
 
-    switch (select ) {
+    switch (select) {
       case "material":
         query = `
           SELECT *
@@ -249,7 +252,7 @@ module.exports = (app, connection) => {
         break;
 
       case "storage_before":
-         query = `
+        query = `
             SELECT
             storage_location.index_storage,
             storage_location.code,
@@ -277,11 +280,11 @@ module.exports = (app, connection) => {
         if (search) {
           params.push(`%${search}%`, `%${search}%`);
           countParams.push(`%${search}%`, `%${search}%`);
-          }
-           break;
+        }
+        break;
 
       case "storage_after":
-          query = `
+        query = `
             SELECT
             storage_location.index_storage,
             storage_location.code,
@@ -296,7 +299,7 @@ module.exports = (app, connection) => {
             LIMIT ? OFFSET ?
             `;
 
-          countQuery = `
+        countQuery = `
             SELECT COUNT(*) AS total
             FROM storage_location
             LEFT JOIN section 
@@ -306,11 +309,11 @@ module.exports = (app, connection) => {
             ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
             `;
 
-          if (search) {
-            params.push(`%${search}%`, `%${search}%`);
-            countParams.push(`%${search}%`, `%${search}%`);
-          }
-          break;
+        if (search) {
+          params.push(`%${search}%`, `%${search}%`);
+          countParams.push(`%${search}%`, `%${search}%`);
+        }
+        break;
 
       case "section":
         query = `
@@ -332,13 +335,13 @@ module.exports = (app, connection) => {
         }
         break;
 
-        case "employee":
+      case "employee":
         query = `
           SELECT *
           FROM employee
           WHERE status = 1
-          ${ search ? "AND (emp_id LIKE ? OR emp_name LIKE ?)" : ""}
-          ${ level ? "AND admin LIKE ?" : ""}
+          ${search ? "AND (emp_id LIKE ? OR emp_name LIKE ?)" : ""}
+          ${level ? "AND admin LIKE ?" : ""}
           LIMIT ? OFFSET ?
         `;
         countQuery = `
@@ -346,18 +349,17 @@ module.exports = (app, connection) => {
           FROM employee
           WHERE status = 1
           ${search ? "AND (emp_id LIKE ? OR emp_name LIKE ?)" : ""}
-           ${ level ? "AND admin LIKE ?" : ""}
+           ${level ? "AND admin LIKE ?" : ""}
         `;
-       if (search) {
-            params.push(`%${search}%`, `%${search}%`);
-            countParams.push(`%${search}%`, `%${search}%`);
-          }
+        if (search) {
+          params.push(`%${search}%`, `%${search}%`);
+          countParams.push(`%${search}%`, `%${search}%`);
+        }
         if (level) {
           params.push(level);
           countParams.push(level);
-        } 
+        }
         break;
-    
 
       default:
         return res.status(400).json({ error: "Invalid select parameter" });
@@ -365,7 +367,7 @@ module.exports = (app, connection) => {
 
     try {
       const data = await queryDatabase(query, [...params, limit, offset]);
-      const totalResult = await queryDatabase(countQuery , countParams);
+      const totalResult = await queryDatabase(countQuery, countParams);
       const total = totalResult[0].total ?? 0;
 
       res.json({
@@ -494,6 +496,7 @@ module.exports = (app, connection) => {
         case "employee":
           query += "employee SET ";
           config = "emp_id";
+          if (code) (setClause.push("emp_id = ?"), values.push(code));
           if (name) (setClause.push("emp_name = ?"), values.push(name));
           if (type) (setClause.push("admin = ?"), values.push(type));
           if (password) (setClause.push("password = ?"), values.push(password));
