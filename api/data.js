@@ -410,16 +410,16 @@ module.exports = (app, connection) => {
   // Add data
   router.post("/add/:select", async (req, res) => {
     const { select } = req.params;
-    const { code, name, section, type, item_code } = req.body;
+    const { code, name, section, type, password, item_code } = req.body;
 
     try {
       switch (select) {
         case "employee":
           await queryDatabase(
-            `INSERT INTO employee (emp_id, emp_name, admin, status)
-             VALUES (?, ?, ?, 1)
-             ON DUPLICATE KEY UPDATE emp_name = VALUES(emp_name), admin = VALUES(admin), status = 1`,
-            [code, name, type]
+            `INSERT INTO employee (emp_id, emp_name, admin, password, status)
+             VALUES (?, ?, ?, ?, 1)
+             ON DUPLICATE KEY UPDATE emp_name = VALUES(emp_name), admin = VALUES(admin), password = VALUES(password), status = 1`,
+            [code, name, type, password]
           );
           return res.json({ message: "employee inserted or reactivated" });
 

@@ -34,22 +34,24 @@ module.exports = (app, connection, uploadOpts) => {
 
     try {
       // Insert into process1
-      await queryDatabase(
+      const result = await queryDatabase(
         `INSERT INTO process1 (emp_id, incoming_date, date_p1, start, finish, total)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [emp_id, incoming_date, date_p1, start, finish, total]
       );
 
+      const index_p1 = result.insertId;
+
       // Update invoice with process1 index
       if (parseInt(hold) === 1) {
         await queryDatabase(
-          `UPDATE invoice SET p1 = LAST_INSERT_ID() , status = 'hold' WHERE code = ?`,
-          [invoice]
+          `UPDATE invoice SET p1 = ? , status = 'hold' WHERE code = ?`,
+          [index_p1,invoice]
         );
       } else {
         await queryDatabase(
-          `UPDATE invoice SET p1 = LAST_INSERT_ID() , status = 'none' WHERE code = ?`,
-          [invoice]
+          `UPDATE invoice SET p1 = ? , status = 'none' WHERE code = ?`,
+          [index_p1 ,invoice]
         );
       }
 
@@ -64,22 +66,24 @@ module.exports = (app, connection, uploadOpts) => {
 
     try {
       // Insert into process1
-      await queryDatabase(
+      const result = await queryDatabase(
         `INSERT INTO process2 (emp_id, date_p2, start, finish, total)
          VALUES (?, ?, ?, ?, ?)`,
         [emp_id, date_p2, start, finish, total]
       );
 
+      const index_p2 = result.insertId;
+
       // Update invoice with process1 index
       if (parseInt(hold) === 1) {
         await queryDatabase(
-          `UPDATE invoice SET p2 = LAST_INSERT_ID() , status = 'hold' WHERE code = ?`,
-          [invoice]
+          `UPDATE invoice SET p2 = ? , status = 'hold' WHERE code = ?`,
+          [index_p2, invoice]
         );
       } else {
         await queryDatabase(
-          `UPDATE invoice SET p2 = LAST_INSERT_ID() , status = 'none' WHERE code = ?`,
-          [invoice]
+          `UPDATE invoice SET p2 = ? , status = 'none' WHERE code = ?`,
+          [index_p2, invoice]
         );
       }
 
