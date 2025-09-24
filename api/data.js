@@ -99,7 +99,7 @@ module.exports = (app, connection) => {
     }
   });
 
-  // Show data
+  // ** Show data
   router.get("/get/:select", async (req, res) => {
     const { select } = req.params;
 
@@ -112,15 +112,17 @@ module.exports = (app, connection) => {
         query = "SELECT * FROM section WHERE status = 1";
         break;
       case "storage_before":
-        query = `SELECT
-                    storage_location.index_storage,
-                    storage_location.code,
-                    storage_location.fk_section,
-                    section.name AS 'section_name'
+        query = `SELECT 
+                  storage_location.index_storage,
+                  storage_location.code,
+                  storage_location.fk_section,
+                  GROUP_CONCAT(section.name ORDER BY section.name SEPARATOR ',') AS section_name
                 FROM storage_location
-                INNER JOIN section ON section.index_section = storage_location.fk_section 
-                WHERE storage_location.type = 'before' 
-                AND storage_location.status = 1`;
+                INNER JOIN section
+                    ON FIND_IN_SET(section.index_section, storage_location.fk_section) > 0
+                WHERE storage_location.type = 'before'
+                  AND storage_location.status = 1
+                GROUP BY storage_location.index_storage, storage_location.code, storage_location.fk_section`;
         break;
       case "storage_after":
         query = `SELECT
@@ -149,14 +151,17 @@ module.exports = (app, connection) => {
     }
   });
 
-  // Get option
+  // ** Get option
   router.get("/option/:select/:section", async (req, res) => {
     const { select, section } = req.params;
 
     let query, values;
     switch (select) {
       case "storage_before":
-        query = `SELECT index_storage, code, fk_section FROM storage_location WHERE type = 'before' AND fk_section = ? AND status = 1`;
+        query = `
+          SELECT index_storage, code, fk_section 
+          FROM storage_location 
+          WHERE FIND_IN_SET( ? , REPLACE(fk_section, ' ', '')) > 0 AND type = 'before' AND status = 1`;
         break;
       case "storage_after":
         query = `
@@ -194,7 +199,6 @@ module.exports = (app, connection) => {
     }
   });
 
-  // Show data with pagination
   // Show data with pagination
   router.get("/limit/:select", async (req, res) => {
     const { select } = req.params;

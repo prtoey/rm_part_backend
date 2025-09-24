@@ -18,23 +18,15 @@ module.exports = (app, connection) => {
   }
 
   router.post("/addInvoice", async (req, res) => {
-    const {
-      invoice,
-      emp_id,
-      section,
-      str_before,
-      str_after,
-      material,
-      item_code,
-    } = req.body;
+    const { invoice, emp_id, section, str_before, str_after } = req.body;
 
     try {
       await queryDatabase(
         `INSERT INTO invoice 
-         (code, emp_id, section, str_before, str_after, material, item_code, 
+         (code, emp_id, section, str_before, str_after, 
           material_status, p1, p2, finish_status, status) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'none', 0, 0, 0, 'none')`,
-        [invoice, emp_id, section, str_before, str_after, material, item_code]
+         VALUES (?, ?, ?, ?, ?, 'none', 0, 0, 0, 'none')`,
+        [invoice, emp_id, section, str_before, str_after]
       );
 
       res.json({ message: "Invoice added successfully" });
@@ -59,16 +51,14 @@ module.exports = (app, connection) => {
             section.name AS section_name, 
             str_before,
             str_after,
-            i.material,
-            i.item_code,
             i.status,
             i.p1,
             i.p2,
             DATE_FORMAT(p1.incoming_date, '%d-%b-%Y') AS incoming_date,
             CASE 
                 WHEN p1.incoming_date IS NOT NULL 
-                    AND DATEDIFF(NOW(), p1.incoming_date) > 14 
-                THEN 1 ELSE 0 
+                THEN DATEDIFF(NOW(), p1.incoming_date)
+                ELSE 0 
             END AS delay,
             i.material_status,
             sb.code AS str_before_code,
@@ -80,7 +70,7 @@ module.exports = (app, connection) => {
         LEFT JOIN storage_location sb ON i.str_before = sb.index_storage
         LEFT JOIN storage_location sa ON i.str_after = sa.index_storage
         WHERE i.status != 'cancel' AND i.finish_status = 0
-        ORDER BY i.code DESC
+        ORDER BY p1.incoming_date
         `
       );
 
@@ -93,15 +83,7 @@ module.exports = (app, connection) => {
 
   router.post("/editInvoice/:code", async (req, res) => {
     const { code } = req.params;
-    const {
-      invoice,
-      emp_id,
-      section,
-      str_before,
-      str_after,
-      material,
-      item_code,
-    } = req.body;
+    const { invoice, emp_id, section, str_before, str_after } = req.body;
 
     try {
       const result = await queryDatabase(
@@ -111,19 +93,8 @@ module.exports = (app, connection) => {
              section = ?, 
              str_before = ?, 
              str_after = ?, 
-             material = ?, 
-             item_code = ?
          WHERE code = ?`,
-        [
-          invoice,
-          emp_id,
-          section,
-          str_before,
-          str_after,
-          material,
-          item_code,
-          code,
-        ]
+        [invoice, emp_id, section, str_before, str_after, code]
       );
 
       if (result.affectedRows === 0) {
@@ -169,14 +140,16 @@ module.exports = (app, connection) => {
             s.name AS section_name, 
             sb.code AS str_before,
             sa.code AS str_after,
-            i.material,
-            i.item_code,
             i.status,
             DATE_FORMAT(p1.incoming_date, '%d-%b-%Y') AS incoming_date,
             CASE
                 WHEN i.finish_status = 1 THEN 'Completed'
                 ELSE 'Not Completed' 
-            END AS finish_status
+            END AS finish_status,
+            CASE
+                WHEN i.material_status = 'none' THEN 0
+                ELSE 1 
+            END AS download
         FROM invoice i
         LEFT JOIN process1 p1 ON i.p1 = p1.index_p1
         INNER JOIN section s ON i.section = s.index_section
@@ -184,7 +157,7 @@ module.exports = (app, connection) => {
         LEFT JOIN storage_location sb ON i.str_before = sb.index_storage
         LEFT JOIN storage_location sa ON i.str_after = sa.index_storage
         WHERE i.status != 'cancel'
-        ORDER BY i.code DESC
+        ORDER BY p1.incoming_date
         `
       );
 
@@ -214,16 +187,14 @@ module.exports = (app, connection) => {
             section.name AS section_name, 
             str_before,
             str_after,
-            i.material,
-            i.item_code,
             i.status,
             i.p1,
             i.p2,
             DATE_FORMAT(p1.incoming_date, '%d-%b-%Y') AS incoming_date,
             CASE 
                 WHEN p1.incoming_date IS NOT NULL 
-                     AND DATEDIFF(NOW(), p1.incoming_date) > 14 
-                THEN 1 ELSE 0 
+                THEN DATEDIFF(NOW(), p1.incoming_date)
+                ELSE 0 
             END AS delay,
             i.material_status,
             sb.code AS str_before_code,
@@ -237,7 +208,7 @@ module.exports = (app, connection) => {
         WHERE i.status != 'cancel'
           AND i.finish_status = 0
           AND p1.incoming_date BETWEEN ? AND ?
-        ORDER BY i.code DESC
+        ORDER BY p1.incoming_date
         `,
         [start, end]
       );
@@ -249,6 +220,54 @@ module.exports = (app, connection) => {
     }
   });
 
+  // ** Filter invoice by code
+  router.post("/filterInvoiceByCode", async (req, res) => {
+    const { code } = req.body;
+
+    try {
+      const rows = await queryDatabase(
+        `
+        SELECT 
+            i.code AS invoice_code,
+            i.section,
+            employee.emp_name,
+            section.name AS section_name, 
+            str_before,
+            str_after,
+            i.status,
+            i.p1,
+            i.p2,
+            DATE_FORMAT(p1.incoming_date, '%d-%b-%Y') AS incoming_date,
+            CASE 
+                WHEN p1.incoming_date IS NOT NULL 
+                THEN DATEDIFF(NOW(), p1.incoming_date)
+                ELSE 0 
+            END AS delay,
+            i.material_status,
+            sb.code AS str_before_code,
+            sa.code AS str_after_code
+        FROM invoice i
+        LEFT JOIN process1 p1 ON i.p1 = p1.index_p1
+        INNER JOIN section ON i.section = section.index_section
+        INNER JOIN employee ON i.emp_id = employee.emp_id
+        LEFT JOIN storage_location sb ON i.str_before = sb.index_storage
+        LEFT JOIN storage_location sa ON i.str_after = sa.index_storage
+        WHERE i.status != 'cancel'
+          AND i.finish_status = 0
+          AND i.code LIKE ?
+        ORDER BY p1.incoming_date
+        `,
+        [`%${code}%`]
+      );
+
+      res.json(rows);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch invoices" });
+    }
+  });
+
+  // **
   router.post("/filterHistoryInvoiceByDate", async (req, res) => {
     const { start, end } = req.body;
 
@@ -268,14 +287,16 @@ module.exports = (app, connection) => {
             s.name AS section_name, 
             sb.code AS str_before,
             sa.code AS str_after,
-            i.material,
-            i.item_code,
             i.status,
             DATE_FORMAT(p1.incoming_date, '%d-%b-%Y') AS incoming_date,
             CASE
                 WHEN i.finish_status = 1 THEN 'Completed'
                 ELSE 'Not Completed' 
-            END AS finish_status
+            END AS finish_status,
+            CASE
+                WHEN i.material_status = 'none' THEN 0
+                ELSE 1 
+            END AS download
         FROM invoice i
         LEFT JOIN process1 p1 ON i.p1 = p1.index_p1
         INNER JOIN section s ON i.section = s.index_section
@@ -284,9 +305,53 @@ module.exports = (app, connection) => {
         LEFT JOIN storage_location sa ON i.str_after = sa.index_storage
         WHERE i.status != 'cancel'
           AND p1.incoming_date BETWEEN ? AND ?
-        ORDER BY i.code DESC
+        ORDER BY p1.incoming_date
         `,
         [start, end]
+      );
+
+      res.json(rows);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch history invoices" });
+    }
+  });
+
+  // ** Search invoice in history by code
+  router.post("/filterHistoryInvoiceByCode", async (req, res) => {
+    const { code } = req.body;
+
+    try {
+      const rows = await queryDatabase(
+        `
+        SELECT 
+            i.code AS invoice_code,
+            i.section,
+            employee.emp_name,
+            s.name AS section_name, 
+            sb.code AS str_before,
+            sa.code AS str_after,
+            i.status,
+            DATE_FORMAT(p1.incoming_date, '%d-%b-%Y') AS incoming_date,
+            CASE
+                WHEN i.finish_status = 1 THEN 'Completed'
+                ELSE 'Not Completed' 
+            END AS finish_status,
+            CASE
+                WHEN i.material_status = 'none' THEN 0
+                ELSE 1 
+            END AS download
+        FROM invoice i
+        LEFT JOIN process1 p1 ON i.p1 = p1.index_p1
+        INNER JOIN section s ON i.section = s.index_section
+        INNER JOIN employee ON i.emp_id = employee.emp_id
+        LEFT JOIN storage_location sb ON i.str_before = sb.index_storage
+        LEFT JOIN storage_location sa ON i.str_after = sa.index_storage
+        WHERE i.status != 'cancel'
+          AND i.code LIKE ?
+        ORDER BY p1.incoming_date
+        `,
+        [`%${code}%`]
       );
 
       res.json(rows);

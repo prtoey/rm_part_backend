@@ -8,9 +8,11 @@ module.exports = (app, connection) => {
   const router = express.Router();
 
   router.post("/export-invoice", async (req, res) => {
-    const { invoice } = req.body;
+    let { invoice } = req.body;
+    let invoices = Array.isArray(invoice) ? invoice : [invoice];
 
     try {
+      const placeholders = invoices.map(() => "?").join(",");
       const sql = `
         SELECT
           COALESCE(DATE_FORMAT(process1.incoming_date, '%Y-%m-%d'), '-') AS Incoming_date,
@@ -88,7 +90,11 @@ module.exports = (app, connection) => {
           COALESCE(process8.finish, '-') AS process8_finish,
           COALESCE(process8.total, '-') AS process8_total,
           COALESCE(DATE_FORMAT(process8.exp_date, '%d-%b-%Y'), '-') AS process8_expDate,
-          COALESCE(l8.name, '-') AS process8_location
+          COALESCE(l8.name, '-') AS process8_location,
+
+          -- Additional
+          COALESCE(internal_lot.remark, '-') AS remark,
+          CASE WHEN data.edit = 1 THEN 'Edited' ELSE 'Active' END AS edit
 
         FROM data
         JOIN internal_lot ON data.internal_lot = internal_lot.index_lot
@@ -124,9 +130,10 @@ module.exports = (app, connection) => {
         LEFT JOIN employee e8 ON process8.emp_id = e8.emp_id
         LEFT JOIN location l8 ON process8.location = l8.index_location
 
-        WHERE invoice.code = ? AND internal_lot.process != 0
+        WHERE invoice.code IN (${placeholders}) AND internal_lot.process != 0
         ORDER BY 
           internal_lot.index_lot ASC,
+          data.edit ASC,
           CASE 
             WHEN process6.judgement = 'NG' THEN 0
             WHEN process6.judgement = 'OK' THEN 1
@@ -134,7 +141,7 @@ module.exports = (app, connection) => {
           END ASC
       `;
 
-      connection.query(sql, [invoice], async (err, results) => {
+      connection.query(sql, invoices, async (err, results) => {
         if (err)
           return res.status(500).json({ error: "Database query failed" });
         if (results.length === 0)
@@ -228,6 +235,10 @@ module.exports = (app, connection) => {
           { key: "process8_total", col: "BE" },
           { key: "process8_expDate", col: "BF" },
           { key: "process8_location", col: "BG" },
+
+          // additional columns if needed
+          { key: "remark", col: "BH" },
+          { key: "edit", col: "BI" },
         ];
 
         //  Write data starting from row 3
@@ -254,38 +265,41 @@ module.exports = (app, connection) => {
           // 2. Highlight rows if judgement missing
           const judgement = rowData.process6_judgement;
           const incomingDateStr = rowData.Incoming_date;
+          const isEdited = rowData.edit === "Edited"; // because you map CASE WHEN to "Edited" / "Active"
 
-          if (!judgement || judgement.trim() === "" || judgement === "-") {
-            if (incomingDateStr && incomingDateStr !== "-") {
-              // parse safely (YYYY-MM-DD → local date)
-              const [y, m, d] = incomingDateStr.split("-");
-              const incomingDate = new Date(
-                Number(y),
-                Number(m) - 1,
-                Number(d)
-              );
+          if (!isEdited) {
+            // only highlight if NOT Edited
+            if (!judgement || judgement.trim() === "" || judgement === "-") {
+              if (incomingDateStr && incomingDateStr !== "-") {
+                const [y, m, d] = incomingDateStr.split("-");
+                const incomingDate = new Date(
+                  Number(y),
+                  Number(m) - 1,
+                  Number(d)
+                );
 
-              const today = new Date();
-              const diffDays = Math.floor(
-                (today - incomingDate) / (1000 * 60 * 60 * 24)
-              );
+                const today = new Date();
+                const diffDays = Math.floor(
+                  (today - incomingDate) / (1000 * 60 * 60 * 24)
+                );
 
-              if (diffDays > 7) {
-                row.eachCell((cell) => {
-                  cell.fill = {
-                    type: "pattern",
-                    pattern: "solid",
-                    fgColor: { argb: "FF5050" }, // 🔴 Red
-                  };
-                });
-              } else if (diffDays > 5) {
-                row.eachCell((cell) => {
-                  cell.fill = {
-                    type: "pattern",
-                    pattern: "solid",
-                    fgColor: { argb: "FFFF00" }, // 🟡 Yellow
-                  };
-                });
+                if (diffDays > 7) {
+                  row.eachCell((cell) => {
+                    cell.fill = {
+                      type: "pattern",
+                      pattern: "solid",
+                      fgColor: { argb: "FF5050" }, // 🔴 Red
+                    };
+                  });
+                } else if (diffDays > 5) {
+                  row.eachCell((cell) => {
+                    cell.fill = {
+                      type: "pattern",
+                      pattern: "solid",
+                      fgColor: { argb: "FFFF00" }, // 🟡 Yellow
+                    };
+                  });
+                }
               }
             }
           }
@@ -302,7 +316,7 @@ module.exports = (app, connection) => {
           column.width = Math.min(maxLength + 2, 20);
         });
 
-        const filename = `dataInvoice_(${invoice}).xlsx`;
+        const filename = `dataInvoice.xlsx`;
         res.setHeader(
           "Content-Disposition",
           `attachment; filename="${filename}"`

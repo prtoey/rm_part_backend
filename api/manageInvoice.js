@@ -21,16 +21,8 @@ module.exports = (app, connection, uploadOpts) => {
   }
 
   router.post("/addProcess1", async (req, res) => {
-    const {
-      invoice,
-      emp_id,
-      incoming_date,
-      date_p1,
-      start,
-      finish,
-      total,
-      hold,
-    } = req.body;
+    const { invoice, emp_id, incoming_date, date_p1, start, finish, total } =
+      req.body;
 
     try {
       // Insert into process1
@@ -42,18 +34,23 @@ module.exports = (app, connection, uploadOpts) => {
 
       const index_p1 = result.insertId;
 
+      await queryDatabase(
+        `UPDATE invoice SET p1 = ? , status = 'none' WHERE code = ?`,
+        [index_p1, invoice]
+      );
+
       // Update invoice with process1 index
-      if (parseInt(hold) === 1) {
-        await queryDatabase(
-          `UPDATE invoice SET p1 = ? , status = 'hold' WHERE code = ?`,
-          [index_p1,invoice]
-        );
-      } else {
-        await queryDatabase(
-          `UPDATE invoice SET p1 = ? , status = 'none' WHERE code = ?`,
-          [index_p1 ,invoice]
-        );
-      }
+      // if (parseInt(hold) === 1) {
+      //   await queryDatabase(
+      //     `UPDATE invoice SET p1 = ? , status = 'hold' WHERE code = ?`,
+      //     [index_p1, invoice]
+      //   );
+      // } else {
+      //   await queryDatabase(
+      //     `UPDATE invoice SET p1 = ? , status = 'none' WHERE code = ?`,
+      //     [index_p1, invoice]
+      //   );
+      // }
 
       res.json({ success: true, message: "Process1 completed" });
     } catch (err) {
@@ -74,18 +71,23 @@ module.exports = (app, connection, uploadOpts) => {
 
       const index_p2 = result.insertId;
 
+      await queryDatabase(
+        `UPDATE invoice SET p2 = ? , status = 'none' WHERE code = ?`,
+        [index_p2, invoice]
+      );
+
       // Update invoice with process1 index
-      if (parseInt(hold) === 1) {
-        await queryDatabase(
-          `UPDATE invoice SET p2 = ? , status = 'hold' WHERE code = ?`,
-          [index_p2, invoice]
-        );
-      } else {
-        await queryDatabase(
-          `UPDATE invoice SET p2 = ? , status = 'none' WHERE code = ?`,
-          [index_p2, invoice]
-        );
-      }
+      // if (parseInt(hold) === 1) {
+      //   await queryDatabase(
+      //     `UPDATE invoice SET p2 = ? , status = 'hold' WHERE code = ?`,
+      //     [index_p2, invoice]
+      //   );
+      // } else {
+      //   await queryDatabase(
+      //     `UPDATE invoice SET p2 = ? , status = 'none' WHERE code = ?`,
+      //     [index_p2, invoice]
+      //   );
+      // }
 
       res.json({ success: true, message: "Process2 completed" });
     } catch (err) {
@@ -138,7 +140,7 @@ module.exports = (app, connection, uploadOpts) => {
         await fs.promises.unlink(tempPath).catch(() => {});
         return res.status(400).json({
           error: "Missing required columns",
-          missing: missingHeaders,
+          message: missingHeaders,
         });
       }
 
@@ -279,7 +281,7 @@ module.exports = (app, connection, uploadOpts) => {
       finish,
       total,
       internal_lot,
-      all_lot,
+      urgent,
     } = req.body;
 
     try {
@@ -291,33 +293,27 @@ module.exports = (app, connection, uploadOpts) => {
       );
       const index_p4 = result.insertId;
 
-      // Decide urgent value
-      let urgent = 0;
-      if (all_lot === false) {
-        urgent = 1;
+      if (urgent === 1) {
         await queryDatabase(
           `UPDATE invoice SET status = 'urgent' WHERE code = ?`,
           [invoice]
         );
       }
 
-      if (internal_lot.length > 0) {
-        // Update internal_lot by index_lot
-        await queryDatabase(
-          `UPDATE internal_lot
+      await queryDatabase(
+        `UPDATE internal_lot
            SET urgent = ?, process = 4
-           WHERE process = 3 AND invoice = ? AND index_lot IN (?)`,
-          [urgent, invoice, internal_lot]
-        );
+           WHERE process = 3 AND invoice = ? AND index_lot = ?`,
+        [urgent, invoice, internal_lot]
+      );
 
-        // Update data by index_lot
-        await queryDatabase(
-          `UPDATE data 
+      // Update data by index_lot
+      await queryDatabase(
+        `UPDATE data 
            SET p4 = ?
-           WHERE internal_lot IN (?)`,
-          [index_p4, internal_lot]
-        );
-      }
+           WHERE internal_lot = ? AND edit = 0`,
+        [index_p4, internal_lot]
+      );
 
       res.json({ success: true, message: "Process4 completed" });
     } catch (err) {
@@ -397,7 +393,7 @@ module.exports = (app, connection, uploadOpts) => {
         await queryDatabase(
           `UPDATE data 
            SET p5 = ?
-           WHERE internal_lot IN (?)`,
+           WHERE internal_lot IN (?) AND edit = 0`,
           [index_p5, internal_lot]
         );
       }
@@ -468,7 +464,7 @@ module.exports = (app, connection, uploadOpts) => {
         await queryDatabase(
           `UPDATE data
            SET p6 = ?
-           WHERE internal_lot = ? AND p6 = 0
+           WHERE internal_lot = ? AND p6 = 0 AND edit = 0
            ORDER BY index_data DESC
            LIMIT 1`,
           [index_p6, internal_lot]
@@ -479,7 +475,7 @@ module.exports = (app, connection, uploadOpts) => {
           `INSERT INTO data (internal_lot, p3, p4, p5, p6, p7, p8, status)
            SELECT internal_lot, p3, p4, p5, ?, p7, p8, status
            FROM data
-           WHERE internal_lot = ?
+           WHERE internal_lot = ? AND edit = 0
            ORDER BY index_data DESC
            LIMIT 1`,
           [index_p6, internal_lot]
@@ -490,6 +486,253 @@ module.exports = (app, connection, uploadOpts) => {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed process6" });
+    }
+  });
+
+  // ** Get old data for update process 4,5,6
+  router.post("/oldDataForUpdate", async (req, res) => {
+    const { index_lot, process } = req.body;
+
+    try {
+      let result;
+
+      if (process === "4") {
+        result = await queryDatabase(
+          `SELECT
+              data.index_data,
+              process4.index_p4,
+              process4.emp_id,
+              process4.date_p4,
+              process4.start AS start,
+              process4.finish,
+              process4.total,
+              internal_lot.index_lot,
+              internal_lot.batch,
+              internal_lot.urgent
+           FROM data
+           INNER JOIN internal_lot ON internal_lot.index_lot = data.internal_lot
+           INNER JOIN process4 ON process4.index_p4 = data.p4
+           WHERE internal_lot.index_lot = ?
+           ORDER BY data.index_data ASC
+           LIMIT 1`,
+          [index_lot]
+        );
+      } else if (process === "5") {
+        result = await queryDatabase(
+          `SELECT
+              data.index_data,
+              process5.index_p5,
+              process5.emp_id,
+              process5.date_p5,
+              process5.start AS start,
+              process5.finish,
+              process5.total,
+              internal_lot.index_lot,
+              internal_lot.batch,
+              internal_lot.urgent
+           FROM data
+           INNER JOIN internal_lot ON internal_lot.index_lot = data.internal_lot
+           INNER JOIN process5 ON process5.index_p5 = data.p5
+           WHERE internal_lot.index_lot = ?
+           ORDER BY data.index_data ASC
+           LIMIT 1`,
+          [index_lot]
+        );
+      } else if (process === "6") {
+        result = await queryDatabase(
+          `SELECT
+              data.index_data,
+              process6.index_p6,
+              process6.emp_id,
+              process6.tag_date AS date_p6,
+              process6.tag_start AS start,
+              process6.tag_finish,
+              process6.total,
+              internal_lot.index_lot,
+              internal_lot.batch,
+              process6.confirm_by,
+              process6.judgement,
+              process6.location
+           FROM data
+           INNER JOIN internal_lot ON internal_lot.index_lot = data.internal_lot
+           INNER JOIN process6 ON process6.index_p6 = data.p6
+           WHERE internal_lot.index_lot = ?
+           ORDER BY data.index_data ASC
+           LIMIT 1`,
+          [index_lot]
+        );
+      }
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res
+        .status(500)
+        .json({ error: "Failed oldDataForUpdate", details: err.message });
+    }
+  });
+
+  // **
+  router.post("/updateProcess4", async (req, res) => {
+    const { index_data, internal_lot } = req.body;
+
+    try {
+      // duplicate data
+      await queryDatabase(
+        `INSERT INTO data (
+           internal_lot, p3, p4, p5, p6, p7, p8, status, edit
+         )
+         SELECT
+           internal_lot, p3, p4, p5, p6, p7, p8, status, 1
+         FROM data
+         WHERE index_data = ?`,
+        [index_data]
+      );
+
+      // update old index_data with reset p4-p8 = 0
+      await queryDatabase(
+        `UPDATE data
+         SET edit = 0, p4 = 0, p5 = 0, p6 = 0, p7 = 0, p8 = 0
+         WHERE index_data = ?`,
+        [index_data]
+      );
+
+      // update internal_lot.process = 4
+      await queryDatabase(
+        `UPDATE internal_lot SET process = 3 WHERE index_lot = ?`,
+        [internal_lot]
+      );
+
+      res.json({
+        success: true,
+        message: "Process4 ready to updated",
+      });
+    } catch (err) {
+      console.error("updateProcess4 Error:", err);
+      res
+        .status(500)
+        .json({ error: "Failed updateProcess4", details: err.message });
+    }
+  });
+
+  // **
+  router.post("/updateProcess5", async (req, res) => {
+    const {
+      index_data,
+      emp_id,
+      date_p5,
+      start,
+      finish,
+      total,
+      internal_lot,
+      urgent,
+    } = req.body;
+
+    try {
+      // 1) Insert new process5
+      const insertResult = await queryDatabase(
+        `INSERT INTO process5 (emp_id, date_p5, start, finish, total)
+         VALUES (?, ?, ?, ?, ?)`,
+        [emp_id, date_p5, start, finish, total]
+      );
+      const newIndexP5 = insertResult.insertId;
+
+      // 2) find index_p5
+      const oldData = await queryDatabase(
+        `SELECT p5 FROM data WHERE index_data = ?`,
+        [index_data]
+      );
+      const oldIndexP5 = oldData[0].p5;
+
+      // 3) update data all p5 = index_p5  → edit = 1
+      await queryDatabase(`UPDATE data SET edit = 1 WHERE p5 = ?`, [
+        oldIndexP5,
+      ]);
+
+      // 4) duplicate data
+      await queryDatabase(
+        `INSERT INTO data (
+           internal_lot, p3, p4, p5, p6, p7, p8, status, edit
+         )
+         SELECT
+           internal_lot, p3, p4, p5, p6, p7, p8, status, 1
+         FROM data
+         WHERE index_data = ?`,
+        [index_data]
+      );
+
+      // 5) update old index_data with new p5 reset p6-p8 = 0
+      await queryDatabase(
+        `UPDATE data
+         SET p5 = ?, edit = 0, p6 = 0, p7 = 0, p8 = 0
+         WHERE index_data = ?`,
+        [newIndexP5, index_data]
+      );
+
+      // 6) update internal_lot.process = 5
+      await queryDatabase(
+        `UPDATE internal_lot SET process = 5 , urgent = ? WHERE index_lot = ?`,
+        [urgent, internal_lot]
+      );
+
+      res.json({
+        success: true,
+        message: "Process5 new updated",
+      });
+    } catch (err) {
+      console.error("updateProcess5 Error:", err);
+      res
+        .status(500)
+        .json({ error: "Failed updateProcess5", details: err.message });
+    }
+  });
+
+  // **
+  router.post("/updateProcess6", async (req, res) => {
+    const { index_data, internal_lot } = req.body;
+
+    try {
+      await queryDatabase(
+        `UPDATE data
+         SET edit = 1
+         WHERE internal_lot = ?`,
+        [internal_lot]
+      );
+
+      // Duplicate the current data row as backup (edit=1)
+      await queryDatabase(
+        `INSERT INTO data (
+           internal_lot, p3, p4, p5, p6, p7, p8, status, edit
+         )
+         SELECT
+           internal_lot, p3, p4, p5, p6, p7, p8, status, 1
+         FROM data
+         WHERE index_data = ?`,
+        [index_data]
+      );
+
+      // Update the target data row with the new process6 id
+      await queryDatabase(
+        `UPDATE data
+         SET p6 = 0, p7 = 0, p8 = 0, edit = 0
+         WHERE index_data = ?`,
+        [index_data]
+      );
+
+      await queryDatabase(
+        `UPDATE internal_lot SET process = 5 WHERE index_lot = ?`,
+        [internal_lot]
+      );
+
+      res.json({
+        success: true,
+        message: "Process6 ready to updated",
+      });
+    } catch (err) {
+      console.error("updateProcess6 Error:", err);
+      res
+        .status(500)
+        .json({ error: "Failed updateProcess6", details: err.message });
     }
   });
 
@@ -698,13 +941,61 @@ module.exports = (app, connection, uploadOpts) => {
                 CASE 
                 WHEN internal_lot.process < 6 
                   THEN DATEDIFF(CURDATE(), process1.incoming_date)
-                ELSE 0
-                END AS delay
+                  ELSE 0
+                END AS delay,
+                CASE 
+                WHEN remark IS NULL OR remark = ''
+                  THEN '-'
+                  ELSE remark
+                END AS remark 
              FROM internal_lot
              INNER JOIN invoice ON invoice.code = internal_lot.invoice
              LEFT JOIN process1 ON process1.index_p1 = invoice.p1
-             WHERE invoice = ? AND process < 8 AND process != 0`,
+             WHERE invoice = ? AND process < 8 AND process != 0
+             ORDER BY process1.incoming_date`,
         [invoice]
+      );
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch invoices" });
+    }
+  });
+
+  // ** Search internal lot config invoice **
+  router.post("/internalLotWithInvoiceAndLot", async (req, res) => {
+    const { invoice, internal_lot } = req.body;
+    try {
+      const result = await queryDatabase(
+        `SELECT
+                index_lot,
+                batch,
+                invoice,
+                material_code,
+                internal_lot.item_code,
+                external_lot,
+                quantity,
+                unit,
+                reference,
+                storage_location,
+                process + 1 AS process,
+                urgent,
+                CASE 
+                WHEN internal_lot.process < 6 
+                  THEN DATEDIFF(CURDATE(), process1.incoming_date)
+                  ELSE 0
+                END AS delay,
+                CASE 
+                WHEN remark IS NULL OR remark = ''
+                  THEN '-'
+                  ELSE remark
+                END AS remark 
+             FROM internal_lot
+             INNER JOIN invoice ON invoice.code = internal_lot.invoice
+             LEFT JOIN process1 ON process1.index_p1 = invoice.p1
+             WHERE invoice = ? AND batch LIKE ? AND process < 8 AND process != 0`,
+        [invoice, `%${internal_lot}%`]
       );
 
       res.json(result);
@@ -734,19 +1025,67 @@ module.exports = (app, connection, uploadOpts) => {
                 CASE 
                 WHEN internal_lot.process < 6 
                   THEN DATEDIFF(CURDATE(), process1.incoming_date)
-                ELSE 0
-                END AS delay 
+                  ELSE 0
+                END AS delay,
+                CASE 
+                WHEN remark IS NULL OR remark = ''
+                  THEN '-'
+                  ELSE remark
+                END AS remark 
             FROM
                 internal_lot
             INNER JOIN invoice ON invoice.code = internal_lot.invoice
             LEFT JOIN process1 ON process1.index_p1 = invoice.p1
             WHERE process < 8 AND process != 0
-            `
+            ORDER BY process1.incoming_date`
       );
 
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch internal lot" });
+    }
+  });
+
+  // ** Search only internal lot**
+  router.post("/searchInternalLot", async (req, res) => {
+    const { internal_lot } = req.body;
+    try {
+      const result = await queryDatabase(
+        `
+        SELECT
+            index_lot,
+            batch,
+            invoice,
+            material_code,
+            internal_lot.item_code,
+            external_lot,
+            quantity,
+            unit,
+            reference,
+            storage_location,
+            process + 1 AS process,
+            urgent,
+            CASE 
+              WHEN internal_lot.process < 6 
+                THEN DATEDIFF(CURDATE(), process1.incoming_date)
+                ELSE 0
+            END AS delay,
+            CASE 
+              WHEN remark IS NULL OR remark = '' THEN '-'
+              ELSE remark
+            END AS remark
+        FROM internal_lot
+        INNER JOIN invoice ON invoice.code = internal_lot.invoice
+        LEFT JOIN process1 ON process1.index_p1 = invoice.p1
+        WHERE batch LIKE ? AND process < 8 AND process != 0
+        `,
+        [`%${internal_lot}%`]
+      );
+
+      res.json(result);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch invoices" });
     }
   });
 
@@ -778,15 +1117,21 @@ module.exports = (app, connection, uploadOpts) => {
             CASE 
               WHEN internal_lot.process < 6 
                 THEN DATEDIFF(CURDATE(), process1.incoming_date)
-              ELSE 0
-            END AS delay
+                ELSE 0
+            END AS delay,
+            CASE 
+              WHEN remark IS NULL OR remark = ''
+                THEN '-'
+                ELSE remark
+            END AS remark 
          FROM internal_lot
          INNER JOIN invoice ON invoice.code = internal_lot.invoice
          LEFT JOIN process1 ON process1.index_p1 = invoice.p1
          WHERE invoice = ?
            AND process < 8
            AND process != 0
-           AND process1.incoming_date BETWEEN ? AND ?`,
+           AND process1.incoming_date BETWEEN ? AND ?
+           ORDER BY process1.incoming_date`,
         [invoice, start, end]
       );
 
@@ -827,14 +1172,20 @@ module.exports = (app, connection, uploadOpts) => {
             CASE 
               WHEN internal_lot.process < 6 
                 THEN DATEDIFF(CURDATE(), process1.incoming_date)
-              ELSE 0
-            END AS delay
-         FROM internal_lot
-         INNER JOIN invoice ON invoice.code = internal_lot.invoice
-         LEFT JOIN process1 ON process1.index_p1 = invoice.p1
-         WHERE process < 8
-           AND process != 0
-           AND process1.incoming_date BETWEEN ? AND ?`,
+                ELSE 0
+            END AS delay,
+            CASE 
+              WHEN remark IS NULL OR remark = ''
+                THEN '-'
+                ELSE remark
+            END AS remark 
+            FROM internal_lot
+            INNER JOIN invoice ON invoice.code = internal_lot.invoice
+            LEFT JOIN process1 ON process1.index_p1 = invoice.p1
+            WHERE process < 8
+              AND process != 0
+              AND process1.incoming_date BETWEEN ? AND ?
+            ORDER BY process1.incoming_date`,
         [start, end]
       );
 
@@ -845,17 +1196,36 @@ module.exports = (app, connection, uploadOpts) => {
     }
   });
 
-  // Edit Internal Lot
+  // ** Edit Internal Lot
   router.post("/editInternalLot/:index_lot", async (req, res) => {
     const { index_lot } = req.params;
-    const { batch } = req.body;
+    const {
+      batch,
+      material,
+      item_code,
+      external_lot,
+      quantity,
+      unit,
+      urgent,
+      remark,
+    } = req.body;
 
     try {
       const result = await queryDatabase(
         `UPDATE internal_lot
-         SET batch = ?
+         SET batch = ? , material_code = ? , item_code = ? , external_lot = ? , quantity = ? , unit = ? , remark = ? , urgent = ?
          WHERE index_lot = ?`,
-        [batch, index_lot]
+        [
+          batch,
+          material,
+          item_code,
+          external_lot,
+          quantity,
+          unit,
+          remark,
+          urgent,
+          index_lot,
+        ]
       );
 
       if (result.affectedRows === 0) {
