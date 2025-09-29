@@ -551,11 +551,14 @@ module.exports = (app, connection, uploadOpts) => {
               process6.total,
               internal_lot.index_lot,
               internal_lot.batch,
+              DATE_FORMAT(process1.incoming_date, '%d-%b-%Y') AS incoming_date,
               process6.confirm_by,
               process6.judgement,
               process6.location
            FROM data
            INNER JOIN internal_lot ON internal_lot.index_lot = data.internal_lot
+           INNER JOIN invoice ON invoice.code = internal_lot.invoice
+           INNER JOIN process1 ON process1.index_p1 = invoice.p1
            INNER JOIN process6 ON process6.index_p6 = data.p6
            WHERE internal_lot.index_lot = ?
            ORDER BY data.index_data ASC
