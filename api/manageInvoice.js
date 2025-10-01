@@ -437,7 +437,7 @@ module.exports = (app, connection, uploadOpts) => {
       const index_p6 = result.insertId;
 
       // 2. OK / NG conditions
-      if (judgement === "OK") {
+      if (judgement === "OK" || judgement === "N/A") {
         // Update internal_lot to process 6
         await queryDatabase(
           `UPDATE internal_lot SET process = 6 WHERE index_lot = ? AND invoice = ?`,
