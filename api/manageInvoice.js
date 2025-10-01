@@ -349,7 +349,7 @@ module.exports = (app, connection, uploadOpts) => {
       finish,
       total,
       internal_lot,
-      all_lot,
+      urgent,
     } = req.body;
 
     try {
@@ -361,43 +361,26 @@ module.exports = (app, connection, uploadOpts) => {
       );
       const index_p5 = result.insertId;
 
-      if (internal_lot.length > 0) {
-        if (all_lot === false) {
-          // Partial lots → set urgent = 1
-          await queryDatabase(
-            `UPDATE internal_lot
-             SET urgent = 1, process = 5
-             WHERE process = 4 AND invoice = ? AND index_lot IN (?)`,
-            [invoice, internal_lot]
-          );
-
-          // Invoice becomes urgent
-          await queryDatabase(
-            `UPDATE invoice SET status = 'urgent' WHERE code = ?`,
-            [invoice]
-          );
-        } else {
-          // all_lot = true
-          // Keep urgent = 1 if already set, otherwise urgent=0
-          await queryDatabase(
-            `UPDATE internal_lot
-             SET urgent = CASE 
-                            WHEN urgent = 1 THEN 1
-                            ELSE 0
-                          END,
-                 process = 5
-             WHERE process = 4 AND invoice = ? AND index_lot IN (?)`,
-            [invoice, internal_lot]
-          );
-        }
-
+      if (urgent === 1) {
         await queryDatabase(
-          `UPDATE data 
-           SET p5 = ?
-           WHERE internal_lot IN (?) AND edit = 0`,
-          [index_p5, internal_lot]
+          `UPDATE invoice SET status = 'urgent' WHERE code = ?`,
+          [invoice]
         );
       }
+
+      await queryDatabase(
+        `UPDATE internal_lot
+             SET urgent = ?, process = 5
+             WHERE process = 4 AND invoice = ? AND index_lot = ?`,
+        [urgent, invoice, internal_lot]
+      );
+
+      await queryDatabase(
+        `UPDATE data 
+           SET p5 = ?
+           WHERE internal_lot IN (?) AND edit = 0`,
+        [index_p5, internal_lot]
+      );
 
       res.json({ success: true, message: "Process5 completed" });
     } catch (err) {

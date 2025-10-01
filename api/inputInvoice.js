@@ -112,17 +112,19 @@ module.exports = (app, connection) => {
     }
   });
 
-  router.delete("/delete/invoice/:code", async (req, res) => {
-    const { code } = req.params;
+  router.delete("/delete/invoice/:code/:section", async (req, res) => {
+    const { code, section } = req.params;
 
     try {
-      let query;
-      let values;
-
-      query = "UPDATE invoice SET status = 'cancel' WHERE code = ?";
-      values = [code];
+      const query = `
+        UPDATE invoice 
+        SET status = 'cancel' 
+        WHERE code = ? AND section = ?
+      `;
+      const values = [code, section];
 
       await queryDatabase(query, values);
+
       res.json({ message: "Invoice has been deleted successfully" });
     } catch (err) {
       res.status(500).json({ error: "Database query error", details: err });

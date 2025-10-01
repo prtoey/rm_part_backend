@@ -125,16 +125,17 @@ module.exports = (app, connection) => {
                 GROUP BY storage_location.index_storage, storage_location.code, storage_location.fk_section`;
         break;
       case "storage_after":
-        query = `SELECT
-                    storage_location.index_storage,
-                    storage_location.code,
-                    storage_location.fk_section,
-                    section.name AS 'section_name'
-                FROM storage_location
-                LEFT JOIN section 
-                ON section.index_section = storage_location.fk_section 
-                WHERE storage_location.type = 'after' 
-                AND storage_location.status = 1`;
+        query = `SELECT 
+                      storage_location.index_storage,
+                      storage_location.code,
+                      storage_location.fk_section,
+                      GROUP_CONCAT(section.name ORDER BY section.name SEPARATOR ',') AS section_name
+                    FROM storage_location
+                    LEFT JOIN section
+                        ON FIND_IN_SET(section.index_section, storage_location.fk_section) > 0
+                    WHERE storage_location.type = 'after'
+                      AND storage_location.status = 1
+                    GROUP BY storage_location.index_storage, storage_location.code, storage_location.fk_section`;
         break;
       case "location":
         query = "SELECT * FROM location WHERE status = 1";
@@ -165,12 +166,15 @@ module.exports = (app, connection) => {
         break;
       case "storage_after":
         query = `
-          SELECT index_storage, code, fk_section 
-          FROM storage_location 
-          WHERE type = 'after' 
-            AND (fk_section = ? OR fk_section IS NULL)
-            AND status = 1
-        `;
+            SELECT index_storage, code, fk_section 
+            FROM storage_location 
+            WHERE (
+                FIND_IN_SET( ? , REPLACE(fk_section, ' ', '')) > 0 
+                OR fk_section IS NULL
+              )
+              AND type = 'after' 
+              AND status = 1
+          `;
         break;
       default:
         return res.status(400).json({ error: "Invalid select specified" });
@@ -257,28 +261,29 @@ module.exports = (app, connection) => {
 
       case "storage_before":
         query = `
-            SELECT
-            storage_location.index_storage,
-            storage_location.code,
-            storage_location.fk_section,
-            section.name AS section_name
+            SELECT 
+              storage_location.index_storage,
+              storage_location.code,
+              storage_location.fk_section,
+              GROUP_CONCAT(section.name ORDER BY section.name SEPARATOR ',') AS section_name
             FROM storage_location
-            INNER JOIN section 
-            ON section.index_section = storage_location.fk_section
+            LEFT JOIN section
+              ON FIND_IN_SET(section.index_section, REPLACE(storage_location.fk_section, ' ', '')) > 0
             WHERE storage_location.type = 'before'
-            AND storage_location.status = 1
-            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+              AND storage_location.status = 1
+              ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+            GROUP BY storage_location.index_storage, storage_location.code, storage_location.fk_section
             LIMIT ? OFFSET ?
           `;
 
         countQuery = `
-            SELECT COUNT(*) AS total
+            SELECT COUNT(DISTINCT storage_location.index_storage) AS total
             FROM storage_location
-            INNER JOIN section 
-            ON section.index_section = storage_location.fk_section
+            LEFT JOIN section
+              ON FIND_IN_SET(section.index_section, REPLACE(storage_location.fk_section, ' ', '')) > 0
             WHERE storage_location.type = 'before'
-            AND storage_location.status = 1
-            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+              AND storage_location.status = 1
+              ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
           `;
 
         if (search) {
@@ -289,29 +294,30 @@ module.exports = (app, connection) => {
 
       case "storage_after":
         query = `
-            SELECT
-            storage_location.index_storage,
-            storage_location.code,
-            storage_location.fk_section,
-            section.name AS section_name
+            SELECT 
+              storage_location.index_storage,
+              storage_location.code,
+              storage_location.fk_section,
+              GROUP_CONCAT(section.name ORDER BY section.name SEPARATOR ',') AS section_name
             FROM storage_location
-            LEFT JOIN section 
-            ON section.index_section = storage_location.fk_section
+            LEFT JOIN section
+              ON FIND_IN_SET(section.index_section, REPLACE(storage_location.fk_section, ' ', '')) > 0
             WHERE storage_location.type = 'after'
-            AND storage_location.status = 1
-            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+              AND storage_location.status = 1
+              ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+            GROUP BY storage_location.index_storage, storage_location.code, storage_location.fk_section
             LIMIT ? OFFSET ?
-            `;
+          `;
 
         countQuery = `
-            SELECT COUNT(*) AS total
+            SELECT COUNT(DISTINCT storage_location.index_storage) AS total
             FROM storage_location
-            LEFT JOIN section 
-            ON section.index_section = storage_location.fk_section
+            LEFT JOIN section
+              ON FIND_IN_SET(section.index_section, REPLACE(storage_location.fk_section, ' ', '')) > 0
             WHERE storage_location.type = 'after'
-            AND storage_location.status = 1
-            ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
-            `;
+              AND storage_location.status = 1
+              ${search ? "AND (storage_location.code LIKE ? OR section.name LIKE ?)" : ""}
+          `;
 
         if (search) {
           params.push(`%${search}%`, `%${search}%`);
@@ -393,15 +399,15 @@ module.exports = (app, connection) => {
       let { startDate, endDate } = req.body;
 
       const query = `
-  SELECT 
-    history.index_login, 
-    DATE_FORMAT(history.timestamp, '%e %M %Y , %H:%i') AS timestamp, 
-    history.emp_id, 
-    employee.emp_name, 
-    employee.emp_type
-  FROM history
-  INNER JOIN employee ON employee.emp_id = history.emp_id
-  WHERE DATE(history.timestamp) BETWEEN '${startDate}' AND '${endDate}'
+      SELECT 
+        history.index_login, 
+        DATE_FORMAT(history.timestamp, '%e %M %Y , %H:%i') AS timestamp, 
+        history.emp_id, 
+        employee.emp_name, 
+        employee.emp_type
+      FROM history
+      INNER JOIN employee ON employee.emp_id = history.emp_id
+      WHERE DATE(history.timestamp) BETWEEN '${startDate}' AND '${endDate}'
 `;
 
       const results = await executeQuery(query, [startDate, endDate]);

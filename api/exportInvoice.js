@@ -9,11 +9,18 @@ module.exports = (app, connection) => {
 
   // **
   router.post("/export-invoice", async (req, res) => {
-    let { invoice } = req.body;
-    let invoices = Array.isArray(invoice) ? invoice : [invoice];
+    let invoiceWithSection = req.body;
+
+    const conditions = invoiceWithSection
+      .map(() => `(invoice.code = ? AND section.index_section = ?)`)
+      .join(" OR ");
+
+    const params = [];
+    invoiceWithSection.forEach((p) => {
+      params.push(p.invoice, p.section);
+    });
 
     try {
-      const placeholders = invoices.map(() => "?").join(",");
       const sql = `
         SELECT
           COALESCE(DATE_FORMAT(process1.incoming_date, '%Y-%m-%d'), '-') AS Incoming_date,
@@ -74,7 +81,12 @@ module.exports = (app, connection) => {
           COALESCE(process6.total, '-') AS process6_total,
           COALESCE(c6.emp_name, '-') AS process6_confirmBy,
           COALESCE(process6.judgement, '-') AS process6_judgement,
-          COALESCE(l6.name, '-') AS process6_location,
+          (
+            SELECT GROUP_CONCAT(name ORDER BY name SEPARATOR ', ')
+            FROM location
+            WHERE FIND_IN_SET(location.index_location, process6.location)
+          ) AS process6_location,
+
 
           -- Process 7
           COALESCE(e7.emp_name, '-') AS process7_name,
@@ -91,7 +103,11 @@ module.exports = (app, connection) => {
           COALESCE(process8.finish, '-') AS process8_finish,
           COALESCE(process8.total, '-') AS process8_total,
           COALESCE(DATE_FORMAT(process8.exp_date, '%d-%b-%Y'), '-') AS process8_expDate,
-          COALESCE(l8.name, '-') AS process8_location,
+          (
+            SELECT GROUP_CONCAT(name ORDER BY name SEPARATOR ', ')
+            FROM location
+            WHERE FIND_IN_SET(location.index_location, process8.location)
+          ) AS process8_location,
 
           -- Additional
           COALESCE(internal_lot.remark, '-') AS remark,
@@ -131,7 +147,8 @@ module.exports = (app, connection) => {
         LEFT JOIN employee e8 ON process8.emp_id = e8.emp_id
         LEFT JOIN location l8 ON process8.location = l8.index_location
 
-        WHERE invoice.code IN (${placeholders}) AND internal_lot.process != 0
+        WHERE (${conditions}) AND internal_lot.process != 0
+
         ORDER BY 
           internal_lot.index_lot ASC,
           data.edit ASC,
@@ -142,7 +159,7 @@ module.exports = (app, connection) => {
           END ASC
       `;
 
-      connection.query(sql, invoices, async (err, results) => {
+      connection.query(sql, params, async (err, results) => {
         if (err)
           return res.status(500).json({ error: "Database query failed" });
         if (results.length === 0)
